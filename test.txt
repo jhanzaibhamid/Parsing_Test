@@ -1,0 +1,202 @@
+////////////////////////
+///// Library //////////
+////////////////////////
+// Testing Link
+// https://www.w3schools.com/tryit/trycompiler.asp?filename=demo_cpp
+
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+
+typedef struct 
+{
+  double utc;
+  double lat; //  DDMM.MMMM
+  char lat_dir;
+  double lon; //  DDDMM.MMMM
+  char lon_dir;
+  double alt;
+  char alt_unit;
+  uint8_t error;
+} gga_data_type ;
+
+/*
+  error codes
+  0 = no error
+  1 = header error if $GPGGA not matchedd
+  2 = parameter missing or wrong string
+  3 = empty parameter
+  >9  bad checksum
+
+*/
+
+
+unsigned char checksum_cal; // Calculated Checksum 
+unsigned char checksum_rec; // Received Checksum
+
+
+// function to check Checksum Integrity
+uint8_t checksum_error_check(char* str, int len)
+{
+  checksum_cal = 0;
+  int i;
+  for (i=1; str[i]!='*'; i++) // i = 1 '$' eliminated
+  {
+    checksum_cal = checksum_cal ^ str[i]; // XOR complete string byte by byte untill '*' observed. and calculat checksum
+  }
+  checksum_rec = (unsigned char)strtol((str+i+1), NULL, 16); // convert received aschii checksum into unsigned char to check error
+  
+  if (checksum_rec == checksum_cal) // check error
+    return 0; // checksum OK
+  else
+    return 10; // Bad checksum
+}
+
+ 
+
+
+int len; // Received string length
+int data_field_number ; // field number accroding to sequence
+uint8_t emptyfields; // empty data fields counter
+
+// this function will take string address and save data in the structure point here
+// this function will return error code if any, 0 mean no error
+int pars_strr(char* str, gga_data_type* gga_data)
+{
+  gga_data->error = 0; //clear error
+  len = strlen(str); 
+  
+  // if header is wrong dont refill the structure and return error code
+  if( strncmp(str, "$GPGGA", 6) != 0)
+  {
+    gga_data->error = 1;
+    return 1; // Header Error
+  }
+    
+	
+  data_field_number = 0; // no data parsed yets
+  
+  // GGA has 14 data fields check them
+  for (int i=0; i<len; i++) 
+    if (str[i] == ',') 
+      data_field_number++;
+  
+  // if not 14 Data fields return error code
+  if (data_field_number != 14)
+  {
+    gga_data->error = 2;
+    return 2; // parameter missing or wrong string
+  } 
+    
+  data_field_number = 0; // data_field number
+  emptyfields = 0; // will be used to see the missing fields
+  
+  for (int i=0; i<len; i++) // check string byte by byte to capture comma (,)
+  {
+      if (str[i] == ',') // if (,)  -> new data_field started
+      {
+          i++; // skipp ','
+          data_field_number++; // data_fields Captured
+          if (data_field_number == 1) // utc data_field
+          {
+            gga_data->utc = atof(str+i); // parse from current point and save into UTC
+            if (gga_data->utc == 0 ) 
+              emptyfields++;
+          }
+          else if (data_field_number == 2)// Latitude data_field
+          { 
+            gga_data->lat = atof(str+i); // parse from current point and save into Latitude
+            if (gga_data->lat == 0 ) 
+              emptyfields++; 
+          }
+          else if (data_field_number == 3) // Latitude_Direction data_field
+          { 
+            gga_data->lat_dir = str[i]; // save latituded direction in char
+          }
+          else if (data_field_number == 4)// Longitude data_field
+          { 
+            gga_data->lon = atof(str+i);   // parse from current point and save into Longitude          
+            if (gga_data->lon == 0 ) 
+              emptyfields++; 
+          }
+          else if (data_field_number == 5)// Longitude_Direction data_field
+          {   
+            gga_data->lon_dir = str[i]; // save longitude direction
+          }
+          else if (data_field_number == 9)// Altitude data_field
+          { 
+            gga_data->alt = atof(str+i); // parse from current point and save into altitude
+            if (gga_data->alt == 0 )
+              emptyfields++; 
+          }
+          else if (data_field_number == 10)// Altitude unit data_field
+          {    
+            gga_data->alt_unit = str[i]; // save altitude unit in char
+          }
+      }
+  }
+  
+  if (emptyfields > 0)
+    gga_data->error = 3; // empty parameter 
+  
+  gga_data->error = gga_data->error + checksum_error_check(str, len);
+   
+  return gga_data->error;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+/////////////////////
+///// Test //////////
+/////////////////////
+
+
+
+
+#include <iostream>
+using namespace std;
+
+//int pars_strr(char *, gga_data_type *);
+//uint8_t checksum_error_check(char* , int);
+
+gga_data_type gga;
+char str0[] = "$GPGGA,100429.00,4318.85531,N,00021.88413,W,1,05,5.24,203.2,M,49.1,M,,*48";
+char str1[] = "$GPGA,202530.00,5109.0262,N,11401.8407,W,5,40,0.5,1097.36,M,-17.00,M,18,TSTR*61";
+char str2[] = "$GPGGA,092750.000,5321.6802,N,00630.3372,W,18,1.03,61.7,M,55.2,M,,*76";
+char str3[] = "$GPGGA,,,,,,,,,,,,,,*56";
+char str4[] = "$GPGGA,210230,3855.4487,N,09446.0071,W,1,07,1.1,370.5,M,-29.5,M,,*70";
+char str5[] = "$GPGGA,115739.00,4158.8441367,N,09147.4416929,W,4,13,0.9,255.747,M,-32.00,M,01,0000*6E";
+char str6[] = "$GPGGA,,,,,,,,,,,,,,*55"; 
+ 
+ 
+int main(void)
+{
+  int error;
+  error = pars_strr(str0, &gga); // Ok String
+  //error = pars_strr(str1, &gga);    // Header Error
+  //error = pars_strr(str2, &gga);  // wrong format or missing data
+  //error = pars_strr(str3, &gga);  // empty data
+  //error = pars_strr(str4, &gga);  // bad checksum
+  //error = pars_strr(str5, &gga);  // Ok String
+  //error = pars_strr(str6, &gga);  // bad checksum + empty data
+  
+  
+  if (error == 0) cout<<"No Error"<< endl;
+  else if (error == 1) cout<<"Header Missing"<< endl;
+  else if (error == 2) cout<<"Data Missing or Wrong Format"<< endl;
+  else if (error == 3) cout<<"Empty Data"<< endl;
+  else if (error == 10) cout<<"Bad Checksum"<< endl;
+  else if (error > 10) cout<<"Bad Checksum & Empty Data"<< endl;
+  
+  
+  cout<<"UTC = "      << gga.utc << endl;
+  cout<<"Latitude = " <<gga.lat  <<' '<<gga.lat_dir<<endl;
+  cout<<"Longitude = "<<gga.lon  <<' '<<gga.lon_dir<<endl;
+  cout<<"Altitude = " <<gga.alt  <<' '<<gga.alt_unit<<endl;
+  
+  while(1);
+ }
+
